@@ -1,0 +1,151 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" // O el motor que estés usando (mysql, sqlite)
+  url      = env("DATABASE_URL")
+}
+
+// Enum para los roles definidos en los requisitos
+enum Role {
+  ADMIN
+  INTEGRADOR
+  GESTOR
+  REVISOR
+  APROBADOR
+  AUDITOR
+}
+
+// Enum para el estado del caso
+enum CasoStatus {
+  PENDIENTE
+  EN_GESTION
+  EN_REVISION
+  EN_APROBACION
+  RESPONDIDO
+  ARCHIVADO
+}
+
+// Modelo de Usuario adaptado a los requisitos
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  password      String? // Para login con credenciales
+  image         String?
+  idColaborador String?   @unique // ID de Colaborador
+  proceso       String?   // Proceso al que pertenece
+  cargo         String?   // Cargo del usuario
+  estado        Boolean   @default(true) // Activo/Inactivo
+  role          Role      @default(GESTOR) // Rol en la plataforma
+
+  // Relaciones de NextAuth
+  accounts Account[]
+  sessions Session[]
+
+  // Relaciones de la app
+  casosAsignados  Caso[]      @relation("GestorAsignado")
+  historialDeCaso Historial[]
+}
+
+// Modelos estándar de NextAuth
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Modelos de la lógica de negocio (Llanogas)
+
+model Entidad {
+  id      String   @id @default(cuid())
+  nombre  String   @unique
+  dominios String[] // Dominios de correo asociados
+  casos   Caso[]
+}
+
+model TipoSolicitud {
+  id                String   @id @default(cuid())
+  nombre            String   @unique
+  palabrasClave     String[] // Palabras clave para clasificación
+  tiempoRespuestaDias Int      // Tiempo otorgado para respuesta
+
+  casos             Caso[]
+}
+
+model Caso {
+  id              String     @id @default(cuid())
+  radicadoAZ      String?    @unique // Número radicado asignado en AZ digital
+  asunto          String
+  cuerpo          String?    @db.Text
+  fechaRecepcion  DateTime   @default(now())
+  fechaVencimiento DateTime
+  estado          CasoStatus @default(PENDIENTE)
+
+  // Relaciones
+  entidad         Entidad?   @relation(fields: [entidadId], references: [id])
+  entidadId       String?
+  tipoSolicitud   TipoSolicitud? @relation(fields: [tipoSolicitudId], references: [id])
+  tipoSolicitudId String?
+  
+  gestorAsignado    User?     @relation("GestorAsignado", fields: [gestorAsignadoId], references: [id])
+  gestorAsignadoId  String?
+
+  historial Historial[]
+  adjuntos  Adjunto[]
+}
+
+// Modelo para la trazabilidad
+model Historial {
+  id        String   @id @default(cuid())
+  caso      Caso     @relation(fields: [casoId], references: [id])
+  casoId    String
+  usuario   User     @relation(fields: [usuarioId], references: [id])
+  usuarioId String
+  accion    String   // Ej: "Creado", "Asignado a...", "Enviado a revisión"
+  timestamp DateTime @default(now())
+}
+
+// Modelo para adjuntos
+model Adjunto {
+  id      String @id @default(cuid())
+  caso    Caso   @relation(fields: [casoId], references: [id])
+  casoId  String
+  nombre  String
+  url     String // URL donde está almacenado (ej. S3, Azure Blob)
+  tipo    String // MimeType
+}
